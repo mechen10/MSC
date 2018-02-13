@@ -3,7 +3,7 @@
 
 # Built under QIIME 1.9.0 and python 2.7.3
 # Made 12Feb2017
-# Working as of 17May2017
+# Not test yet; but should work?
 
 # Script for determining shared microbiomes in different treatment groups all at once. 
 
@@ -18,7 +18,7 @@ import copy
 #################################
 
 parser = argparse.ArgumentParser(
-	description="Takes OTU table, metadata, and column:treatment to find shared OTUs in each treatment. ***AUTOMATICALLY DELETES LOW ABUNDANCE OTUS ***")
+	description="Takes OTU table, metadata, and column:treatment to find shared OTUs in each treatment. ")
 parser.add_argument(
 	'-i',
 	'--OTU_table',
@@ -155,22 +155,22 @@ def printTableFromDictionary(dictionary, output):
 		toPrint += "\n"
 	open(str(output)+".txt", 'w').write(toPrint)
 	print "DONE"
-	
-def getOTUSubset(OTUTable, dictSamples, dictOTUs):
-	OTUTableSubsets = {}
-	for treatment in allTreatmentList:
-		colnames = allTreatmentList[treatment]
-		rownames = ALLCORES[treatment]
-		newOTUTable = {}
-		for OTU in OTUTable:
-			if OTU in rownames:
-				newOTUTable[OTU] = {}
-				for sample in OTUTable[OTU]:
-					if sample in colnames:
-						newOTUTable[OTU][str(sample)] = OTUTable[OTU][str(sample)]
-		OTUTableSubsets[treatment] = newOTUTable
-	return(OTUTableSubsets)
-	
+# 	
+# def getOTUSubset(OTUTable, dictSamples, dictOTUs):
+# 	OTUTableSubsets = {}
+# 	for treatment in allTreatmentList:
+# 		colnames = allTreatmentList[treatment]
+# 		rownames = ALLCORES[treatment]
+# 		newOTUTable = {}
+# 		for OTU in OTUTable:
+# 			if OTU in rownames:
+# 				newOTUTable[OTU] = {}
+# 				for sample in OTUTable[OTU]:
+# 					if sample in colnames:
+# 						newOTUTable[OTU][str(sample)] = OTUTable[OTU][str(sample)]
+# 		OTUTableSubsets[treatment] = newOTUTable
+# 	return(OTUTableSubsets)
+# 	
 def getColNames(metadata, columnName):
 	allTreatmentList = {}
 # 	tempNames = []
@@ -232,13 +232,33 @@ def getTotalNumOTUs(OTUTable, metadata, columnName, Treatment):
 	for OTU in OTUTable.keys():
 		presence = 0
 		counter = 0
-		while  presence == 0:
+		while presence == 0 and counter < len(sampleList):
 			sample = sampleList[counter]
 			if OTUTable[OTU][sample] > 0:
 				presence += 1
+			counter += 1
 		if presence > 0:
 			OTUtotal.append(OTU)
 	return(OTUtotal)
+
+def getAveAbundInGroup(OTUTable, metadata, columnName, Treatment):
+	AllColumn = metadata[columnName]
+	# Get all sample names in desired treatment
+	sampleList = []
+	for i in AllColumn:
+		if AllColumn[i] == Treatment:
+			sampleList.append(i)
+	# Get these samples from the OTU table
+	SampleOTUCount = {}
+	for OTU in OTUTable.keys():
+		Readsubtotal = 0
+		for sample in sampleList:
+			Readsubtotal += OTUTable[OTU][sample]
+		SampleOTUCount[OTU] = Readsubtotal/(len(sampleList))
+	ReadTotal = 0
+	for OTU in SampleOTUCount.keys():
+		ReadTotal += SampleOTUCount[OTU]
+	return(SampleOTUCount,ReadTotal)
 
 #################################
 
@@ -246,7 +266,8 @@ def getTotalNumOTUs(OTUTable, metadata, columnName, Treatment):
 os.system(str("mkdir " + outputFolder))
 
 OTUTableFull,taxaIDs = loadOTUTable(OTUFP)
-OTUTable = removeMinOTUs(OTUTableFull, 0.001)
+# OTUTable = removeMinOTUs(OTUTableFull, 0.001)
+OTUTable = OTUTableFull
 print "DONE LOADING OTU TABLE"
 metadata = loadMetadata(metadataFP)
 print "DONE LOADING METADATA"
@@ -265,25 +286,45 @@ for Treatment1 in allTreatmentList:
 	ALLSHARED[Treatment1] = {}
 	for Treatment2 in allTreatmentList:
 		ALLSHARED[Treatment1][Treatment2] = getShared(OTUTable, metadata, columnName, Treatment1, Treatment2)
-	
 
-
-	
-	
-	
-	
-	
-# Get OTU table subset of just these cores
-		
-OTUSubset = getOTUSubset(OTUTable, allTreatmentList, ALLSHARED)
+# Calculate total number of OTUs each
+TOTALOTUS = {}
+for Treatment in allTreatmentList:
+	TOTALOTUS[Treatment] = getTotalNumOTUs(OTUTable, metadata, columnName, Treatment)
 	
 #################################
 
-# Print out as OTU table
-
-for treatment in OTUSubset:
-	printTableFromDictionary(OTUSubset[treatment], str(outputFolder + "/" + treatment))
+# Sample matrix with raw OTU numbers
+sharedOTUsmatrix = {}
+for Treatment1 in allTreatmentList:
+	sharedOTUsmatrix[str(Treatment1)+'('+str(len(TOTALOTUS[Treatment1]))+')'] = {}
+	for Treatment2 in allTreatmentList:
+		sharedOTUsmatrix[str(Treatment1)+'('+str(len(TOTALOTUS[Treatment1]))+')'][str(Treatment2)+'('+str(len(TOTALOTUS[Treatment2]))+')'] = len(ALLSHARED[Treatment1][Treatment2])
 	
+# Sample matrix with OTUs as percentage of horizontal row
+sharedOTUspercent = {}
+for Treatment1 in allTreatmentList:
+	sharedOTUspercent[str(Treatment1)+'('+str(len(TOTALOTUS[Treatment1]))+')'] = {}
+	for Treatment2 in allTreatmentList:
+		sharedOTUspercent[str(Treatment1)+'('+str(len(TOTALOTUS[Treatment1]))+')'][Treatment2] = len(ALLSHARED[Treatment1][Treatment2])/float(len(TOTALOTUS[Treatment1]))
+
+# By horizontal row: what amount is represented by the shared OTUs
+sharedOTUsproportion = {}
+for Treatment1 in allTreatmentList:
+	aveAbundTemp,total = getAveAbundInGroup(OTUTable, metadata, columnName, Treatment1)
+	sharedOTUsproportion[str(Treatment1)+'('+str(len(TOTALOTUS[Treatment1]))+')'] = {}
+	for Treatment2 in allTreatmentList:
+		totalPerc = 0
+		for OTU in ALLSHARED[Treatment1][Treatment2]:
+			totalcount = aveAbundTemp[OTU]
+			totalPerc += totalcount/total
+		sharedOTUsproportion[str(Treatment1)+'('+str(len(TOTALOTUS[Treatment1]))+')'][Treatment2] = totalPerc
+
+		
+# Print all of these	
+printTableFromDictionary(sharedOTUsmatrix, str(outputFolder + "/SHAREDMATRIX_rawnumbers"))
+printTableFromDictionary(sharedOTUspercent, str(outputFolder + "/SHAREDMATRIX_percentByRows"))
+printTableFromDictionary(sharedOTUsproportion, str(outputFolder + "/SHAREDMATRIX_proportionByRows"))
 
 #################################
 
