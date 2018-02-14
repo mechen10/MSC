@@ -2,8 +2,7 @@
 #### OTUs IN COMMON ###
 
 # Built under QIIME 1.9.0 and python 2.7.3
-# Made 12Feb2017
-# Not test yet; but should work?
+# Works as of 13Feb2017
 
 # Script for determining shared microbiomes in different treatment groups all at once. 
 
