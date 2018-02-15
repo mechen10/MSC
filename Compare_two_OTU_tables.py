@@ -4,8 +4,7 @@
 #### OTUs IN COMMON ###
 
 # Built under QIIME 1.9.0 and python 2.7.3
-# Made 13Feb2017
-# Not test yet; but should work?
+# Working as of 13Feb2017; only one trial
 
 # Script for determining shared microbiomes in different treatment groups all at once. 
 import argparse
@@ -24,14 +23,14 @@ parser.add_argument(
 	help = "Comma separated list of OTU table file paths from QIIME containing all samples",
 	required = True,)
 parser.add_argument(
-	'-m',
-	'--metadata',
-	help = 'Comma separated mapping files for each OTU table; must be in same order as OTU_table',
-	required = True)
-parser.add_argument(
 	'--align_log',
 	help = 'The log file from align_seqs; or, can be any tab delimited file with the following headers: "candidate sequence ID", "template ID", "BLAST percent identity to template". (The last one is used to tell whether the file has ended; just need something in that column ',
 	required = True)
+parser.add_argument(
+	'-k',
+	'--keep_unique_otus',
+	help = 'If included, output will INCLUDE OTUs that are NOT in common between datasets. Be aware that this means you cannot differentiate between zero OTUs, and OTUs that were simply not in dataset.',
+	action = 'store_true')
 parser.add_argument(
 	'-o',
 	'--outputFolder',
@@ -39,19 +38,20 @@ parser.add_argument(
 	required = False,
 	default = 'batch_core_analysis')
 	
-	
 args = parser.parse_args()
 
 OTUFP = args.OTU_table
 OTU1,OTU2 = OTUFP.split(",")
-metadataFP = args.metadata
-MF1,MF2 = metadataFP.split(",")
 align_log = args.align_log
+keep = args.keep_unique_otus
 outputFolder = args.outputFolder
 
 
 #################################
 # FUNCTIONS
+
+
+
 
 # LOAD DATA
 
@@ -82,28 +82,6 @@ def loadOTUTableRaw(OTUFP): # Loads and DOES NOT convert to relative abundance
 	os.system("rm OTU_Table_text.txt")
 	return OTUTable,taxaIDs # Output is a 2-layer dictionary; first is OTU IDs and second is samples. Also, one-layer dict with taxa IDs
 	
-def loadMetadata(metadataFP):
-	metadataOpen = open(metadataFP, 'U') # U is for 'Universal read'-- automatically turns into Unix LF
-	metadataTemp = []
-	for i in metadataOpen:
-		lineTemp = i.strip()
-		lineTempSplit = lineTemp.split("\t")
-		metadataTemp.append(lineTempSplit)
-	metadataOpen.close()
-	metadata = {}
-	metadataSites = []
-	for lineN in range(len(metadataTemp)):
-		if lineN == 0:
-			headerList = metadataTemp[lineN]
-			for headerName in metadataTemp[lineN]:
-				metadata[headerName] = {}
-		else:
-			for i in range(1,len(metadataTemp[lineN])):
-				metadataSites.append(metadataTemp[lineN][0])
-				sortHeader = headerList[i]
-				metadata[sortHeader][metadataTemp[lineN][0]] = metadataTemp[lineN][i]
-	return metadata # output is 2-layer dictionary: first is Metadata and second is samples
-
 def loadAligmentLog(align_log):
 	# Open file
 	AL = open(align_log,'U')
@@ -137,7 +115,10 @@ def loadAligmentLog(align_log):
 		if not first and line[percIDheader]:
 			otumap['otu1_first'][line[otu1header]] = line[otu2header]
 		if not first and line[percIDheader]:
-			otumap['otu2_first'][line[otu2header]] = line[otu1header]
+			if line[otu2header] not in otumap['otu2_first'].keys():
+				otumap['otu2_first'][line[otu2header]] = [line[otu1header]]
+			else:
+				otumap['otu2_first'][line[otu2header]].append(line[otu1header])
 		first = False
 	return(otumap)		
 
@@ -158,7 +139,7 @@ def printTableFromDictionary(dictionary, output):
 	open(str(output)+".txt", 'w').write(toPrint)
 	print "DONE"
 	
-def printBiomFromDictionary(otutable, taxaIDs, output): # prints a biom file and text file from dictionary
+def printBiomFromDictionary(otutable, taxaIDs2, taxaIDs1, output): # prints a biom file and text file from dictionary
 	toPrint = '#OTU ID'
 	first = True
 	for row in otutable:
@@ -170,19 +151,20 @@ def printBiomFromDictionary(otutable, taxaIDs, output): # prints a biom file and
 		toPrint += str(row)
 		for column in otutable[row]:
 			toPrint += "\t" + str(otutable[row][column])
-		toPrint += "\t" + taxaIDs[row] + "\n"
+		newrow = row.replace('.1','')
+		newrow = newrow.replace('.2','')
+		if newrow in taxaIDs2.keys():
+			toPrint += "\t" + taxaIDs2[newrow] + "\n"
+		elif newrow in taxaIDs1.keys():
+			toPrint += "\t" + taxaIDs1[newrow] + "\n"
+		else:
+			toPrint += "\t\n"
 	open(str(output)+".txt", 'w').write(toPrint)
 	os.system('biom convert -i ' + str(output) + '.txt --to-hdf5 --table-type="OTU table" --process-obs-metadata taxonomy -o ' + str(output) + ".biom")
 	print "DONE"
 				
 
 #################################
-align_log = '/Users/melissachen/Documents/Masters/Project_Masters/Project_MacroalgaeSource/Feb_Neighbours_work_with3analysis/pynast_aligned/MC_neighbours_OTUreps_log.txt'
-OTU1 = '/Users/melissachen/Documents/Masters/Project_Masters/Project_MacroalgaeSource/Feb_Neighbours_work_with3analysis/OTU_Table_nochlpmito_m800.biom'
-OTU2 = ''
-MF1 = '/Users/melissachen/Documents/Masters/Project_Masters/Project_MacroalgaeSource/Feb_Neighbours_work_with3analysis/OTU_Table_nochlpmito_m800.biom /Users/melissachen/Documents/Masters/Project_Masters/Project_MacroalgaeSource/Feb_Neighbours_work_with3analysis/Merged_mapping_file.txt'
-MF2 = ''
-outputFolder = "TEST"
 
 os.system(str("mkdir " + outputFolder))
 
@@ -193,23 +175,61 @@ print "DONE LOADING OTU TABLE"
 
 otumap = loadAligmentLog(align_log)
 megaOTU = {}
-# Keep track of how many seqs are lost
-lostOTU1 = 0
-lostOTU2 = 0
-for OTU in otumap['otu1_first'].keys():
-	metaOTU[OTU] = {}
-	otu1ID = OTU
-	otu2ID = otumap['otu1_first'][OTU]
-	if otu1ID in OTUTable1.keys():
-		megaOTU[OTU] = OTUTable1[otu1ID]
-	else:
-		lostOTU1 += 1
-	if otu2ID in OTUTable2.keys():
-		megaOTU[OTU].update(OTUTable2[otu2ID])
-	else:
-		lostOTU2 += 1
-		
+# Find headers for both tables so we can put 0 OTUs for missing ones
+table1Samples = OTUTable1[OTUTable1.keys()[2]].keys() # 2 is arbirary; just use any number < n
+table2Samples = OTUTable2[OTUTable2.keys()[2]].keys()
+zeros1 = dict.fromkeys(table1Samples,0)
+zeros2 = dict.fromkeys(table2Samples,0)
+
+if keep: # If you want to keep all OTUs, even ones that are not in common
+	for OTU in otumap['otu2_first'].keys():
+		usedseq1 = 0
+		otu2ID = OTU
+		otu1ID = otumap['otu2_first'][OTU]
+		if otu2ID in OTUTable2.keys(): 
+			megaOTU[OTU] = OTUTable2[otu2ID].copy() # copies table 2's numbers
+		else:
+			megaOTU[OTU] = zeros2
+		sumseqvar1 = zeros1
+		for seqvar in otu1ID: # now add all sequence variant counts	
+			if seqvar in OTUTable1.keys():
+				usedseq1 += 1
+				sumseqvar1 = { k: float(sumseqvar1.get(k)) + float(OTUTable1[seqvar].get(k)) for k in set(sumseqvar1) | set(OTUTable1[seqvar]) }
+		# Now, add those summed counts to the megaOTU.
+		megaOTU[OTU].update(sumseqvar1)
+	for OTU in OTUTable1.keys():
+		if OTU not in otumap['otu1_first'].keys():
+			megaOTU[OTU+'.1'] = OTUTable1[OTU].copy()
+			megaOTU[OTU+'.1'].update(zeros2)
+	for OTU in OTUTable2.keys():
+		if OTU not in otumap['otu2_first'].keys():
+			megaOTU[OTU+'.2'] = OTUTable2[OTU].copy()
+			megaOTU[OTU+'.2'].update(zeros1)
+else: # If you do NOT want to keep all OTUs; just the ones that are in common
+	for OTU in otumap['otu2_first'].keys():
+		usedseq1 = 0
+		otu2ID = OTU
+		otu1ID = otumap['otu2_first'][OTU]
+		if otu2ID in OTUTable2.keys(): 
+			megaOTU[OTU] = OTUTable2[otu2ID].copy() # copies table 2's numbers
+		else:
+			megaOTU[OTU] = zeros2
+		sumseqvar1 = zeros1
+		for seqvar in otu1ID: # now add all sequence variant counts	
+			if seqvar in OTUTable1.keys():
+				usedseq1 += 1
+				sumseqvar1 = { k: float(sumseqvar1.get(k)) + float(OTUTable1[seqvar].get(k)) for k in set(sumseqvar1) | set(OTUTable1[seqvar]) }
+		# Now, add those summed counts to the megaOTU.
+		megaOTU[OTU].update(sumseqvar1)
+	lostOTU1 = len(OTUTable1.keys()) - usedseq1
+	lostOTU2 = len(OTUTable2.keys()) - len(megaOTU.keys())
+
+if keep:
+	open(outputFolder+"/LOG.txt", 'w').write('All OTUs kept; cannot differentiate between different zeros')
+else:
+	open(outputFolder+"/LOG.txt", 'w').write('OTUS lost from Table 1:'+str(lostOTU1)+'\nOTUs lost from Table 2:'+str(lostOTU2))
+
 # Print OTU table
-printBiomFromDictionary(megaOTURaw, taxaIDs1, str(outputFolder + "/merged_otutable"))
+printBiomFromDictionary(megaOTU, taxaIDs2, taxaIDs1, str(outputFolder + "/merged_otutable"))
 		
 #################################

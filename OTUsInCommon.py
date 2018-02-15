@@ -122,54 +122,43 @@ def loadMetadata(metadataFP):
 				sortHeader = headerList[i]
 				metadata[sortHeader][metadataTemp[lineN][0]] = metadataTemp[lineN][i]
 	return metadata # output is 2-layer dictionary: first is Metadata and second is samples
-
-def removeMinOTUs(originalOTUTable, minThreshold): # Turns OTUs that are less than minThreshold to '0's
-	OTUTableInter = copy.deepcopy(originalOTUTable)
-	toDelete = []
-	for OTU in OTUTableInter:
-		allValues = []
-		for sample in OTUTableInter[OTU]:
-			if OTUTableInter[OTU][sample] < minThreshold:
-				OTUTableInter[OTU][sample] = 0
-			allValues.append(OTUTableInter[OTU][sample])
-		if all(item == 0 for item in allValues):
-			toDelete.append(OTU)
-	for i in toDelete:
-		del OTUTableInter[i]
-	return OTUTableInter
 	
+def makeOTUandMetaSame(OTUtable, Metadata): # filters out samples that are not in respective files
+	otuSamplesToDel = []
+	metaSamplesToDel = []
+	otutable = OTUtable.copy()
+	metadata = Metadata.copy()
+	for sample in otutable[otutable.keys()[1]]:
+		if sample not in metadata[metadata.keys()[1]].keys():
+			otuSamplesToDel.append(sample)
+	for sample in metadata[metadata.keys()[1]].keys():
+		if sample not in otutable[otutable.keys()[1]].keys():
+			metaSamplesToDel.append(sample)
+	for sample in otuSamplesToDel:
+		for OTU in otutable.keys():
+			del otutable[OTU][sample]
+	for sample in metaSamplesToDel:
+		for environ in metadata.keys():
+			if environ != '#SampleID':
+				del metadata[environ][sample]
+	return(otutable, metadata)
 	
 def printTableFromDictionary(dictionary, output):
 	toPrint = ''
 	first = True
-	for row in dictionary:
+	for row in sorted(dictionary):
 		if first == True:
-			for column in dictionary[row]:
+			for column in sorted(dictionary[row]):
 				toPrint += "\t" + str(column)
 				first = False
 			toPrint += "\n"
 		toPrint += str(row)
-		for column in dictionary[row]:
+		for column in sorted(dictionary[row]):
 			toPrint += "\t" + str(dictionary[row][column])
 		toPrint += "\n"
 	open(str(output)+".txt", 'w').write(toPrint)
 	print "DONE"
-# 	
-# def getOTUSubset(OTUTable, dictSamples, dictOTUs):
-# 	OTUTableSubsets = {}
-# 	for treatment in allTreatmentList:
-# 		colnames = allTreatmentList[treatment]
-# 		rownames = ALLCORES[treatment]
-# 		newOTUTable = {}
-# 		for OTU in OTUTable:
-# 			if OTU in rownames:
-# 				newOTUTable[OTU] = {}
-# 				for sample in OTUTable[OTU]:
-# 					if sample in colnames:
-# 						newOTUTable[OTU][str(sample)] = OTUTable[OTU][str(sample)]
-# 		OTUTableSubsets[treatment] = newOTUTable
-# 	return(OTUTableSubsets)
-# 	
+
 def getColNames(metadata, columnName):
 	allTreatmentList = {}
 # 	tempNames = []
@@ -265,11 +254,11 @@ def getAveAbundInGroup(OTUTable, metadata, columnName, Treatment):
 os.system(str("mkdir " + outputFolder))
 
 OTUTableFull,taxaIDs = loadOTUTable(OTUFP)
-# OTUTable = removeMinOTUs(OTUTableFull, 0.001)
-OTUTable = OTUTableFull
 print "DONE LOADING OTU TABLE"
-metadata = loadMetadata(metadataFP)
+metadataRaw = loadMetadata(metadataFP)
 print "DONE LOADING METADATA"
+
+OTUTable,metadata = makeOTUandMetaSame(OTUTableFull, metadataRaw)
 
 # Get list of groups
 if groups == 'False':
